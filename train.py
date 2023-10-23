@@ -162,5 +162,5 @@ def run(cfg: Box) -> None:
     model, optimizer = fabric.setup(model, optimizer)
 
     train_sam(cfg, fabric, model, optimizer, scheduler, train_data, val_data)
-    validate(fabric, model, val_data, epoch=0)
+    validate(fabric, model, cfg, val_data, epoch=0)
 
