@@ -100,10 +100,11 @@ def train_sam(
                 loss_iou += F.mse_loss(iou_prediction, batch_iou, reduction='sum') / num_masks
 
             loss_total = 20. * loss_focal + loss_dice + loss_iou
+
             optimizer.zero_grad()
             fabric.backward(loss_total)
             optimizer.step()
-            scheduler.step()
+
             batch_time.update(time.time() - end)
             end = time.time()
 
@@ -125,6 +126,9 @@ def train_sam(
             best_score = score
             state_dict = model.model.state_dict()
             torch.save(state_dict, os.path.join(cfg.out_dir, f"best-epoch-{epoch}-f1{score:.2f}.pth"))
+
+        # lr adjustment
+        scheduler.step()
 
 
 def configure_opt(cfg: Box, model: Model):
