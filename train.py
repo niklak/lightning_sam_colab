@@ -54,21 +54,23 @@ def validate(fabric: L.Fabric, model: Model, cfg: Box, val_dataloader: DataLoade
     if fabric.global_rank == 0:
         torch.save(state_dict, os.path.join(cfg.out_dir, f"epoch-{epoch:06d}-f1{f1_scores.avg:.2f}-ckpt.pth"))
     model.train()
+    return f1_scores.avg
 
 
 def train_sam(
-    cfg: Box,
-    fabric: L.Fabric,
-    model: Model,
-    optimizer: _FabricOptimizer,
-    scheduler: _FabricOptimizer,
-    train_dataloader: DataLoader,
-    val_dataloader: DataLoader,
+        cfg: Box,
+        fabric: L.Fabric,
+        model: Model,
+        optimizer: _FabricOptimizer,
+        scheduler: _FabricOptimizer,
+        train_dataloader: DataLoader,
+        val_dataloader: DataLoader,
 ):
     """The SAM training loop."""
 
     focal_loss = FocalLoss()
     dice_loss = DiceLoss()
+    best_score = 0
 
     for epoch in range(1, cfg.num_epochs):
         batch_time = AverageMeter()
@@ -78,13 +80,11 @@ def train_sam(
         iou_losses = AverageMeter()
         total_losses = AverageMeter()
         end = time.time()
-        validated = False
 
-        for iter, data in enumerate(train_dataloader):
-            if epoch > 1 and epoch % cfg.eval_interval == 0 and not validated:
-                validate(fabric, model, cfg, val_dataloader, epoch)
-                validated = True
+        if epoch > 1 and epoch % cfg.eval_interval == 0:
+            validate(fabric, model, cfg, val_dataloader, epoch)
 
+        for batch_iter, data in enumerate(train_dataloader):
             data_time.update(time.time() - end)
             images, bboxes, gt_masks = data
             batch_size = images.size(0)
@@ -112,7 +112,7 @@ def train_sam(
             iou_losses.update(loss_iou.item(), batch_size)
             total_losses.update(loss_total.item(), batch_size)
 
-            fabric.print(f'Epoch: [{epoch}][{iter+1}/{len(train_dataloader)}]'
+            fabric.print(f'Epoch: [{epoch}][{batch_iter + 1}/{len(train_dataloader)}]'
                          f' | Time [{batch_time.val:.3f}s ({batch_time.avg:.3f}s)]'
                          f' | Data [{data_time.val:.3f}s ({data_time.avg:.3f}s)]'
                          f' | Focal Loss [{focal_losses.val:.4f} ({focal_losses.avg:.4f})]'
@@ -120,9 +120,14 @@ def train_sam(
                          f' | IoU Loss [{iou_losses.val:.4f} ({iou_losses.avg:.4f})]'
                          f' | Total Loss [{total_losses.val:.4f} ({total_losses.avg:.4f})]')
 
+        score = validate(fabric, model, cfg, val_dataloader, epoch)
+        if score > best_score:
+            best_score = score
+            state_dict = model.model.state_dict()
+            torch.save(state_dict, os.path.join(cfg.out_dir, f"best-epoch-{epoch}-f1{score:.2f}.pth"))
+
 
 def configure_opt(cfg: Box, model: Model):
-
     def lr_lambda(step):
         if step < cfg.opt.warmup_steps:
             return step / cfg.opt.warmup_steps
@@ -131,7 +136,7 @@ def configure_opt(cfg: Box, model: Model):
         elif step < cfg.opt.steps[1]:
             return 1 / cfg.opt.decay_factor
         else:
-            return 1 / (cfg.opt.decay_factor**2)
+            return 1 / (cfg.opt.decay_factor ** 2)
 
     optimizer = torch.optim.Adam(model.model.parameters(), lr=cfg.opt.learning_rate, weight_decay=cfg.opt.weight_decay)
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
@@ -155,6 +160,7 @@ def run(cfg: Box) -> None:
         model.setup()
 
     train_data, val_data = load_datasets(cfg, model.model.image_encoder.img_size)
+    # TODO: call fabric.setup_dataloaders instead
     train_data = fabric._setup_dataloader(train_data)
     val_data = fabric._setup_dataloader(val_data)
 
@@ -163,4 +169,3 @@ def run(cfg: Box) -> None:
 
     train_sam(cfg, fabric, model, optimizer, scheduler, train_data, val_data)
     validate(fabric, model, cfg, val_data, epoch=0)
-
