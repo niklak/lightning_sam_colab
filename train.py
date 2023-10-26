@@ -81,9 +81,6 @@ def train_sam(
         total_losses = AverageMeter()
         end = time.time()
 
-        if epoch > 1 and epoch % cfg.eval_interval == 0:
-            validate(fabric, model, cfg, val_dataloader, epoch)
-
         for batch_iter, data in enumerate(train_dataloader):
             data_time.update(time.time() - end)
             images, bboxes, gt_masks = data
