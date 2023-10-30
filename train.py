@@ -11,7 +11,7 @@ from lightning.fabric.loggers import TensorBoardLogger
 
 import segmentation_models_pytorch as smp
 from box import Box
-from tqdm import tqdm
+from tqdm.auto import tqdm
 
 from dataset import load_datasets
 from model import Model
@@ -46,8 +46,7 @@ def validate(fabric: L.Fabric, model: Model, cfg: Box, val_dataloader: DataLoade
                 batch_f1 = smp.metrics.f1_score(*batch_stats, reduction="micro-imagewise")
                 ious.update(batch_iou, num_images)
                 f1_scores.update(batch_f1, num_images)
-            desc = (f'Validation: [{epoch}][{n + 1}/{total_it}]:'
-                    f' Mean IoU: [{ious.avg:.4f}] -- Mean F1: [{f1_scores.avg:.4f}]')
+            desc = (f'''Validation: [{epoch}][{n + 1}/{total_it}]: Mean IoU: [{ious.avg:.4f}] -- Mean F1: [{f1_scores.avg:.4f}]''')
             bar_dataloader.set_description(desc)
 
     fabric.print(f'Validation [{epoch}]: Mean IoU: [{ious.avg:.4f}] -- Mean F1: [{f1_scores.avg:.4f}]')
@@ -117,9 +116,7 @@ def train_sam(
             iou_losses.update(loss_iou.item(), batch_size)
             total_losses.update(loss_total.item(), batch_size)
 
-            desc = f'Training: [{epoch}][{batch_iter + 1}/{total_it}] -- Loss F: '
-            f'Focal: {focal_losses.val:.4f} | Dice: {dice_losses.val:.4f} | '
-            f'IoU: {iou_losses.val:.4f} | Total: {total_losses.val:.4f}'
+            desc = f'''Training: [{epoch}][{batch_iter + 1}/{total_it}] -- Loss F: Focal: {focal_losses.val:.4f} | Dice: {dice_losses.val:.4f} | IoU: {iou_losses.val:.4f} | Total: {total_losses.val:.4f}'''
             bar_dataloder.set_description(desc)
 
         fabric.print(f'Training: [{epoch}] -- Losses: Focal: {focal_losses.avg:.4f} | Dice: {dice_losses.avg:.4f} | '
