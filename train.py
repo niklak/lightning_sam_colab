@@ -11,8 +11,9 @@ from lightning.fabric.loggers import TensorBoardLogger
 
 import segmentation_models_pytorch as smp
 from box import Box
-from dataset import load_datasets
+from tqdm import tqdm
 
+from dataset import load_datasets
 from model import Model
 from losses import DiceLoss
 from losses import FocalLoss
@@ -27,8 +28,10 @@ def validate(fabric: L.Fabric, model: Model, cfg: Box, val_dataloader: DataLoade
     ious = AverageMeter()
     f1_scores = AverageMeter()
 
+    bar_dataloader = tqdm(val_dataloader)
+    total_it = len(val_dataloader)
     with torch.no_grad():
-        for iter, data in enumerate(val_dataloader):
+        for n, data in enumerate(bar_dataloader):
             images, bboxes, gt_masks = data
             num_images = images.size(0)
             pred_masks, _ = model(images, bboxes)
@@ -43,9 +46,9 @@ def validate(fabric: L.Fabric, model: Model, cfg: Box, val_dataloader: DataLoade
                 batch_f1 = smp.metrics.f1_score(*batch_stats, reduction="micro-imagewise")
                 ious.update(batch_iou, num_images)
                 f1_scores.update(batch_f1, num_images)
-            fabric.print(
-                f'Val: [{epoch}] - [{iter}/{len(val_dataloader)}]: Mean IoU: [{ious.avg:.4f}] -- Mean F1: [{f1_scores.avg:.4f}]'
-            )
+            desc = (f'Validation: [{epoch}][{n + 1}/{total_it}]:'
+                    f' Mean IoU: [{ious.avg:.4f}] -- Mean F1: [{f1_scores.avg:.4f}]')
+            bar_dataloader.set_description(desc)
 
     fabric.print(f'Validation [{epoch}]: Mean IoU: [{ious.avg:.4f}] -- Mean F1: [{f1_scores.avg:.4f}]')
 
@@ -81,7 +84,10 @@ def train_sam(
         total_losses = AverageMeter()
         end = time.time()
 
-        for batch_iter, data in enumerate(train_dataloader):
+        bar_dataloder = tqdm(train_dataloader)
+        total_it = len(train_dataloader)
+
+        for batch_iter, data in enumerate(bar_dataloder):
             data_time.update(time.time() - end)
             images, bboxes, gt_masks = data
             batch_size = images.size(0)
@@ -92,7 +98,6 @@ def train_sam(
             loss_iou = torch.tensor(0., device=fabric.device)
 
             for pred_mask, gt_mask, iou_prediction in zip(pred_masks, gt_masks, iou_predictions):
-
                 loss_focal += focal_loss(pred_mask, gt_mask, num_masks)
                 loss_dice += dice_loss(pred_mask, gt_mask, num_masks)
                 batch_iou = calc_iou(pred_mask, gt_mask)
@@ -112,14 +117,13 @@ def train_sam(
             iou_losses.update(loss_iou.item(), batch_size)
             total_losses.update(loss_total.item(), batch_size)
 
-            fabric.print(f'Epoch: [{epoch}][{batch_iter + 1}/{len(train_dataloader)}]'
-                         f' | Time [{batch_time.val:.3f}s ({batch_time.avg:.3f}s)]'
-                         f' | Data [{data_time.val:.3f}s ({data_time.avg:.3f}s)]'
-                         f' | Focal Loss [{focal_losses.val:.4f} ({focal_losses.avg:.4f})]'
-                         f' | Dice Loss [{dice_losses.val:.4f} ({dice_losses.avg:.4f})]'
-                         # f' | IoU Loss [{iou_losses.val:.4f} ({iou_losses.avg:.4f})]'
-                         f' | Total Loss [{total_losses.val:.4f} ({total_losses.avg:.4f})]')
+            desc = f'Training: [{epoch}][{batch_iter + 1}/{total_it}] -- Loss F: '
+            f'Focal: {focal_losses.val:.4f} | Dice: {dice_losses.val:.4f} | '
+            f'IoU: {iou_losses.val:.4f} | Total: {total_losses.val:.4f}'
+            bar_dataloder.set_description(desc)
 
+        fabric.print(f'Training: [{epoch}] -- Losses: Focal: {focal_losses.avg:.4f} | Dice: {dice_losses.avg:.4f} | '
+                     f'IoU: {iou_losses.avg:.4f} | Total: {total_losses.avg:.4f}')
         score = validate(fabric, model, cfg, val_dataloader, epoch)
         if score > best_score:
             best_score = score
@@ -154,7 +158,7 @@ def run(cfg: Box) -> None:
                       loggers=[TensorBoardLogger(cfg.out_dir, name="lightning-sam")])
     fabric.launch()
     fabric.seed_everything()
-    #fabric.seed_everything(1337 + fabric.global_rank)
+    # fabric.seed_everything(1337 + fabric.global_rank)
 
     if fabric.global_rank == 0:
         os.makedirs(cfg.out_dir, exist_ok=True)
