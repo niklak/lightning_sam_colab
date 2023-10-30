@@ -157,8 +157,8 @@ def run(cfg: Box) -> None:
                       strategy="auto",
                       loggers=[TensorBoardLogger(cfg.out_dir, name="lightning-sam")])
     fabric.launch()
-    fabric.seed_everything()
-    # fabric.seed_everything(1337 + fabric.global_rank)
+    #fabric.seed_everything()
+    fabric.seed_everything(42 + fabric.global_rank)
 
     if fabric.global_rank == 0:
         os.makedirs(cfg.out_dir, exist_ok=True)
