@@ -90,13 +90,15 @@ def train_sam(
             loss_focal = torch.tensor(0., device=fabric.device)
             loss_dice = torch.tensor(0., device=fabric.device)
             loss_iou = torch.tensor(0., device=fabric.device)
+
             for pred_mask, gt_mask, iou_prediction in zip(pred_masks, gt_masks, iou_predictions):
-                batch_iou = calc_iou(pred_mask, gt_mask)
+
                 loss_focal += focal_loss(pred_mask, gt_mask, num_masks)
                 loss_dice += dice_loss(pred_mask, gt_mask, num_masks)
+                batch_iou = calc_iou(pred_mask, gt_mask)
                 loss_iou += F.mse_loss(iou_prediction, batch_iou, reduction='sum') / num_masks
 
-            loss_total = 20. * loss_focal + loss_dice + loss_iou
+            loss_total = loss_focal + loss_dice + loss_iou
 
             optimizer.zero_grad()
             fabric.backward(loss_total)
@@ -115,7 +117,7 @@ def train_sam(
                          f' | Data [{data_time.val:.3f}s ({data_time.avg:.3f}s)]'
                          f' | Focal Loss [{focal_losses.val:.4f} ({focal_losses.avg:.4f})]'
                          f' | Dice Loss [{dice_losses.val:.4f} ({dice_losses.avg:.4f})]'
-                         f' | IoU Loss [{iou_losses.val:.4f} ({iou_losses.avg:.4f})]'
+                         # f' | IoU Loss [{iou_losses.val:.4f} ({iou_losses.avg:.4f})]'
                          f' | Total Loss [{total_losses.val:.4f} ({total_losses.avg:.4f})]')
 
         score = validate(fabric, model, cfg, val_dataloader, epoch)
@@ -151,7 +153,8 @@ def run(cfg: Box) -> None:
                       strategy="auto",
                       loggers=[TensorBoardLogger(cfg.out_dir, name="lightning-sam")])
     fabric.launch()
-    fabric.seed_everything(1337 + fabric.global_rank)
+    fabric.seed_everything()
+    #fabric.seed_everything(1337 + fabric.global_rank)
 
     if fabric.global_rank == 0:
         os.makedirs(cfg.out_dir, exist_ok=True)
